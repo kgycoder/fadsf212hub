@@ -1,0 +1,34 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Install MAUI Workload
+      run: dotnet workload install maui --ignore-failed-sources
+
+    - name: Restore dependencies
+      run: dotnet restore X-WARE/SYNC.MAUI.csproj -p:CheckEolTargetFramework=false
+
+    - name: Build Android APK
+      run: dotnet build X-WARE/SYNC.MAUI.csproj -c Release -f net8.0-android34.0 /p:AndroidPackageFormat=apk /p:AndroidKeyStore=false -p:CheckEolTargetFramework=false --no-incremental -v n
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: SYNC-Android-APK
+        path: X-WARE/bin/Release/net8.0-android/*-Signed.apk
