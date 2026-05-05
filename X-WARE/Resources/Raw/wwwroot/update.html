@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>SYNC 업데이트</title>
+    <link rel="stylesheet" href="update.css">
+</head>
+<body>
+
+    <!-- 타이틀바 (드래그 가능) -->
+    <div id="tbar" onmousedown="post('drag')">
+        <span class="tbar-title">
+            <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
+                <rect x="1.5" y="11" width="3" height="6" rx="1.5" fill="white"/>
+                <rect x="6.5" y="7" width="3" height="14" rx="1.5" fill="white"/>
+                <rect x="11.5" y="4" width="3" height="20" rx="1.5" fill="white"/>
+                <rect x="16.5" y="8" width="3" height="12" rx="1.5" fill="white"/>
+                <rect x="21.5" y="12" width="3" height="4" rx="1.5" fill="white"/>
+            </svg>
+            SYNC
+        </span>
+        <button class="close-btn" onclick="post('closeUpdate')" title="닫기">✕</button>
+    </div>
+
+    <!-- 메인 콘텐츠 -->
+    <div id="main">
+
+        <!-- 아이콘 영역 -->
+        <div class="icon-wrap">
+            <div class="icon-ring">
+                <svg id="icon-arrow" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v14M6 10l6 6 6-6"/>
+                    <path d="M4 20h16"/>
+                </svg>
+                <!-- 다운로드 중: 원형 프로그레스 -->
+                <svg id="icon-progress" class="hidden" width="64" height="64" viewBox="0 0 64 64">
+                    <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+                    <circle id="prog-circle" cx="32" cy="32" r="28" fill="none"
+                            stroke="rgba(255,255,255,0.85)" stroke-width="4"
+                            stroke-linecap="round"
+                            stroke-dasharray="175.9" stroke-dashoffset="175.9"
+                            transform="rotate(-90 32 32)"/>
+                </svg>
+            </div>
+        </div>
+
+        <!-- 텍스트 -->
+        <div id="state-ready">
+            <p class="headline">새 버전이 있어요!</p>
+            <p class="sub">
+                <span class="ver-badge cur" id="txt-current">v1.0.0</span>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.4)"
+                     stroke-width="1.8" stroke-linecap="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+                <span class="ver-badge new" id="txt-latest">v1.1.0</span>
+            </p>
+            <pre class="notes" id="txt-notes"></pre>
+        </div>
+
+        <div id="state-downloading" class="hidden">
+            <p class="headline">다운로드 중...</p>
+            <p class="sub-plain" id="txt-progress">0%</p>
+        </div>
+
+        <div id="state-error" class="hidden">
+            <p class="headline err">업데이트 실패</p>
+            <p class="sub-plain err-msg" id="txt-error">알 수 없는 오류</p>
+        </div>
+
+        <!-- 버튼 -->
+        <div class="btn-row" id="btn-row-ready">
+            <button class="btn-skip" onclick="post('closeUpdate')">나중에</button>
+            <button class="btn-update" onclick="post('startUpdate')">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v14M6 10l6 6 6-6"/><path d="M4 20h16"/>
+                </svg>
+                지금 업데이트
+            </button>
+        </div>
+
+        <div class="btn-row hidden" id="btn-row-error">
+            <button class="btn-skip" onclick="post('closeUpdate')">닫기</button>
+            <button class="btn-update" onclick="retryUpdate()">다시 시도</button>
+        </div>
+
+    </div>
+
+    <script>
+    'use strict';
+
+    /* ── C# → JS 브릿지 ── */
+    window.__updateSync = function(j) {
+        try {
+            const m = JSON.parse(j);
+            switch (m.type) {
+                case 'versionInfo':
+                    document.getElementById('txt-current').textContent = 'v' + m.current;
+                    document.getElementById('txt-latest').textContent  = 'v' + m.latest;
+                    if (m.notes) document.getElementById('txt-notes').textContent = m.notes;
+                    break;
+                case 'downloading':
+                    setState('downloading');
+                    break;
+                case 'progress':
+                    setProgress(m.value);
+                    break;
+                case 'error':
+                    setState('error');
+                    document.getElementById('txt-error').textContent = m.message || '알 수 없는 오류';
+                    break;
+            }
+        } catch(e) {}
+    };
+
+    /* ── JS → C# 브릿지 ── */
+    function post(type, extra) {
+        try {
+            window.chrome.webview.postMessage(JSON.stringify({ type, ...(extra||{}) }));
+        } catch {}
+    }
+
+    /* ── 상태 전환 ── */
+    function setState(state) {
+        document.getElementById('state-ready').classList.toggle('hidden', state !== 'ready');
+        document.getElementById('state-downloading').classList.toggle('hidden', state !== 'downloading');
+        document.getElementById('state-error').classList.toggle('hidden', state !== 'error');
+        document.getElementById('btn-row-ready').classList.toggle('hidden', state !== 'ready');
+        document.getElementById('btn-row-error').classList.toggle('hidden', state !== 'error');
+
+        // 아이콘 전환
+        document.getElementById('icon-arrow').classList.toggle('hidden', state !== 'ready');
+        document.getElementById('icon-progress').classList.toggle('hidden', state !== 'downloading');
+
+        if (state === 'downloading') {
+            setProgress(0);
+        }
+    }
+
+    /* ── 다운로드 프로그레스 ── */
+    function setProgress(pct) {
+        const CIRC = 175.9; // 2π × 28
+        const circle = document.getElementById('prog-circle');
+        const offset = CIRC - (pct / 100) * CIRC;
+        circle.style.strokeDashoffset = offset;
+        document.getElementById('txt-progress').textContent = pct + '%';
+    }
+
+    /* ── 재시도 ── */
+    function retryUpdate() {
+        setState('ready');
+    }
+
+    /* ── 초기 상태 ── */
+    setState('ready');
+    </script>
+
+</body>
+</html>
